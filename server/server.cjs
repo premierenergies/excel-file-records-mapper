@@ -117,8 +117,6 @@ app.post('/upload/:report', upload.single('file'), async (req, res) => {
           }
         }
 
-        // If cellDates:true and raw:true produced a JS Date directly, it'll already be Date
-        // Otherwise leave non-date cells as-is
         obj[h] = val;
       });
       return obj;
@@ -127,10 +125,27 @@ app.post('/upload/:report', upload.single('file'), async (req, res) => {
     // Infer schema
     const schema = inferSchema(rows, headers);
 
-    // Prepare table for bulk insert
+    // Prepare table name
     const tableName = `${report.toUpperCase()}_DATA`;
+
+    // Ensure table exists and clear previous data
+    const createAndClearSql = `
+      IF OBJECT_ID('dbo.${tableName}', 'U') IS NULL
+      BEGIN
+        CREATE TABLE dbo.${tableName} (
+          ${schema.map(col => `[${col.name}] ${col.definition} NULL`).join(',\n          ')}
+        );
+      END
+      ELSE
+      BEGIN
+        TRUNCATE TABLE dbo.${tableName};
+      END
+    `;
+    await pool.request().query(createAndClearSql);
+
+    // Prepare table for bulk insert (no auto-create)
     const table = new sql.Table(tableName);
-    table.create = true;
+    table.create = false;
     table.columns.manual = false;
 
     // Add columns to table definition
