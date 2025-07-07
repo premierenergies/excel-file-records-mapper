@@ -43,7 +43,9 @@ function inferSchema(rows, headers) {
   const schema = [];
 
   headers.forEach((col) => {
-    const vals = rows.map(r => r[col]).filter(v => v !== null && v !== undefined);
+    const vals = rows
+      .map(r => r[col])
+      .filter(v => v !== null && v !== undefined);
     let type;
 
     if (vals.every(v => v instanceof Date)) {
@@ -73,13 +75,22 @@ app.post('/upload/:report', upload.single('file'), async (req, res) => {
   }
 
   try {
-    // Parse workbook from buffer
-    const workbook = XLSX.read(req.file.buffer, { type: 'buffer', cellDates: true, dateNF: 'yyyy-MM-dd' });
+    // Parse workbook from buffer with cellDates:true so we can control date parsing
+    const workbook = XLSX.read(req.file.buffer, {
+      type: 'buffer',
+      cellDates: true,
+      dateNF: 'yyyy-MM-dd'
+    });
     const sheetName = workbook.SheetNames[0];
     const worksheet = workbook.Sheets[sheetName];
 
-    // Convert to array of arrays (header + rows)
-    const data = XLSX.utils.sheet_to_json(worksheet, { header: 1, raw: false, defval: null, cellDates: true });
+    // Convert to array of arrays (header + rows), keep raw values so Excel dates remain serials
+    const data = XLSX.utils.sheet_to_json(worksheet, {
+      header: 1,
+      raw: true,
+      defval: null,
+      cellDates: true
+    });
     if (data.length < 2) {
       return res.status(400).json({ error: 'Excel file must have a header row and at least one data row.' });
     }
@@ -87,16 +98,27 @@ app.post('/upload/:report', upload.single('file'), async (req, res) => {
     const headers = data[0].map(h => String(h).trim());
     const rawRows = data.slice(1);
 
-    // Build row objects
+    // Identify which columns end with “Date”
+    const dateCols = new Set(
+      headers.filter(h => /Date$/i.test(h))
+    );
+
+    // Build row objects, converting Excel serial dates into real JS Dates
     const rows = rawRows.map(rowArr => {
       const obj = {};
       headers.forEach((h, idx) => {
         let val = rowArr[idx];
-        // Convert date-like strings back to Date
-        if (val && typeof val === 'string' && /^\d{4}-\d{2}-\d{2}/.test(val)) {
-          const d = new Date(val);
-          if (!isNaN(d)) val = d;
+
+        // If this column is a date field and val is numeric, parse with SSF
+        if (dateCols.has(h) && typeof val === 'number') {
+          const dc = XLSX.SSF.parse_date_code(val);
+          if (dc) {
+            val = new Date(dc.y, dc.m - 1, dc.d, dc.H, dc.M, dc.S);
+          }
         }
+
+        // If cellDates:true and raw:true produced a JS Date directly, it'll already be Date
+        // Otherwise leave non-date cells as-is
         obj[h] = val;
       });
       return obj;

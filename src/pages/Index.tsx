@@ -76,31 +76,7 @@ const Index = () => {
           </p>
         </div>
 
-        {/* Stats Bar */}
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
-          <div className="bg-gradient-card p-4 rounded-lg shadow-card text-center">
-            <div className="text-2xl font-bold text-primary">{p2pData.length}</div>
-            <div className="text-sm text-muted-foreground">P2P Records</div>
-          </div>
-          <div className="bg-gradient-card p-4 rounded-lg shadow-card text-center">
-            <div className="text-2xl font-bold text-success">{purchaseData.length}</div>
-            <div className="text-sm text-muted-foreground">Purchase Records</div>
-          </div>
-          <div className="bg-gradient-card p-4 rounded-lg shadow-card text-center">
-            <div className="text-2xl font-bold text-warning">{salesData.length}</div>
-            <div className="text-sm text-muted-foreground">Sales Records</div>
-          </div>
-          <div className="flex items-center justify-center">
-            <Button 
-              onClick={downloadAllFiles}
-              className="w-full"
-              variant="outline"
-            >
-              <Download className="h-4 w-4 mr-2" />
-              Download All
-            </Button>
-          </div>
-        </div>
+       
 
         {/* Upload Cards */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
