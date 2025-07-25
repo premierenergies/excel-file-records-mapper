@@ -1,13 +1,16 @@
-const express = require('express');
-const multer = require('multer');
-const XLSX = require('xlsx');
-const sql = require('mssql');
-const cors = require('cors');
+// server.cjs
+const express = require("express");
+const multer = require("multer");
+const XLSX = require("xlsx");
+const sql = require("mssql");
+const cors = require("cors");
+const path = require("path");
+const { Buffer } = require("buffer");
 
 // Database configuration
 const dbConfig = {
   user: "SPOT_USER",
-  password: "Premier#3801",
+  password: "Marvik#72@",
   server: "10.0.40.10",
   port: 1433,
   database: "SART",
@@ -20,7 +23,7 @@ const dbConfig = {
 
 // Initialize Express
 const app = express();
-app.use(cors());
+app.use(cors("*")); // Allow all origins for CORS
 app.use(express.json());
 
 // Multer for parsing multipart/form-data (file uploads)
@@ -31,9 +34,9 @@ let pool;
 (async () => {
   try {
     pool = await sql.connect(dbConfig);
-    console.log('✅ Connected to SQL Server');
+    console.log("✅ Connected to SQL Server");
   } catch (err) {
-    console.error('❌ SQL Connection Error:', err);
+    console.error("❌ SQL Connection Error:", err);
     process.exit(1);
   }
 })();
@@ -41,135 +44,139 @@ let pool;
 // Helper: infer column types from the data
 function inferSchema(rows, headers) {
   const schema = [];
-
   headers.forEach((col) => {
-    const vals = rows
-      .map(r => r[col])
-      .filter(v => v !== null && v !== undefined);
+    const vals = rows.map((r) => r[col]).filter((v) => v != null);
     let type;
-
-    if (vals.every(v => v instanceof Date)) {
-      type = { mssql: sql.DateTime2, definition: 'DATETIME2' };
-    } else if (vals.every(v => typeof v === 'number')) {
-      const hasFloat = vals.some(n => !Number.isInteger(n));
-      if (hasFloat) {
-        type = { mssql: sql.Decimal(18, 4), definition: 'DECIMAL(18,4)' };
-      } else {
-        type = { mssql: sql.BigInt, definition: 'BIGINT' };
-      }
+    if (vals.length && vals.every((v) => v instanceof Date)) {
+      type = { mssql: sql.DateTime2, definition: "DATETIME2" };
+    } else if (vals.length && vals.every((v) => typeof v === "number")) {
+      const hasFloat = vals.some((n) => !Number.isInteger(n));
+      type = hasFloat
+        ? { mssql: sql.Decimal(18, 4), definition: "DECIMAL(18,4)" }
+        : { mssql: sql.BigInt, definition: "BIGINT" };
     } else {
-      type = { mssql: sql.NVarChar(sql.MAX), definition: 'NVARCHAR(MAX)' };
+      type = { mssql: sql.NVarChar(sql.MAX), definition: "NVARCHAR(MAX)" };
     }
-
     schema.push({ name: col, ...type });
   });
-
   return schema;
 }
 
 // Endpoint for uploading Excel and inserting data
-app.post('/upload/:report', upload.single('file'), async (req, res) => {
-  const report = req.params.report; // 'p2p', 'purchase', or 'sales'
+app.post("/upload/:report", upload.single("file"), async (req, res) => {
+  const report = req.params.report;
   if (!req.file) {
-    return res.status(400).json({ error: 'No file uploaded.' });
+    return res.status(400).json({ error: "No file uploaded." });
   }
 
   try {
-    // Parse workbook from buffer with cellDates:true so we can control date parsing
+    // Read workbook
     const workbook = XLSX.read(req.file.buffer, {
-      type: 'buffer',
+      type: "buffer",
       cellDates: true,
-      dateNF: 'yyyy-MM-dd'
+      dateNF: "yyyy-MM-dd",
     });
     const sheetName = workbook.SheetNames[0];
     const worksheet = workbook.Sheets[sheetName];
-
-    // Convert to array of arrays (header + rows), keep raw values so Excel dates remain serials
+    // Convert to JSON array-of-arrays
     const data = XLSX.utils.sheet_to_json(worksheet, {
       header: 1,
       raw: true,
       defval: null,
-      cellDates: true
+      cellDates: true,
     });
     if (data.length < 2) {
-      return res.status(400).json({ error: 'Excel file must have a header row and at least one data row.' });
+      return res.status(400).json({
+        error: "Excel file must have a header row and at least one data row.",
+      });
     }
 
-    const headers = data[0].map(h => String(h).trim());
-    const rawRows = data.slice(1);
-
-    // Identify which columns end with “Date”
-    const dateCols = new Set(
-      headers.filter(h => /Date$/i.test(h))
+    // new: normalize spaces → underscores before deduping
+    const rawHeaders = data[0].map((h) => String(h).trim());
+    const underscored = rawHeaders.map(
+      (h) => h.replace(/\s+/g, "_") || "Column"
     );
+    const headerCounts = {};
+    const headers = underscored.map((h) => {
+      headerCounts[h] = (headerCounts[h] || 0) + 1;
+      return headerCounts[h] === 1 ? h : `${h}_${headerCounts[h]}`;
+    });
 
-    // Build row objects, converting Excel serial dates into real JS Dates
-    const rows = rawRows.map(rowArr => {
+    // Map rows into objects using the unique headers
+    const rawRows = data.slice(1);
+    const dateCols = new Set(headers.filter((h) => /Date$/i.test(h)));
+    const rows = rawRows.map((arr) => {
       const obj = {};
-      headers.forEach((h, idx) => {
-        let val = rowArr[idx];
-
-        // If this column is a date field and val is numeric, parse with SSF
-        if (dateCols.has(h) && typeof val === 'number') {
+      headers.forEach((h, i) => {
+        let val = arr[i];
+        if (dateCols.has(h) && typeof val === "number") {
           const dc = XLSX.SSF.parse_date_code(val);
           if (dc) {
             val = new Date(dc.y, dc.m - 1, dc.d, dc.H, dc.M, dc.S);
           }
         }
-
         obj[h] = val;
       });
       return obj;
     });
 
-    // Infer schema
+    // Infer schema and ensure table is dropped & recreated
     const schema = inferSchema(rows, headers);
-
-    // Prepare table name
     const tableName = `${report.toUpperCase()}_DATA`;
-
-    // Ensure table exists and clear previous data
     const createAndClearSql = `
-      IF OBJECT_ID('dbo.${tableName}', 'U') IS NULL
-      BEGIN
-        CREATE TABLE dbo.${tableName} (
-          ${schema.map(col => `[${col.name}] ${col.definition} NULL`).join(',\n          ')}
-        );
-      END
-      ELSE
-      BEGIN
-        TRUNCATE TABLE dbo.${tableName};
-      END
+      IF OBJECT_ID('dbo.${tableName}', 'U') IS NOT NULL
+        DROP TABLE dbo.${tableName};
+      CREATE TABLE dbo.${tableName} (
+        ${schema
+          .map((c) => `[${c.name}] ${c.definition} NULL`)
+          .join(",\n        ")}
+      );
     `;
     await pool.request().query(createAndClearSql);
 
-    // Prepare table for bulk insert (no auto-create)
+    // Bulk insert
     const table = new sql.Table(tableName);
     table.create = false;
-    table.columns.manual = false;
-
-    // Add columns to table definition
-    schema.forEach(col => {
-      table.columns.add(col.name, col.mssql, { nullable: true });
+    schema.forEach((c) => {
+      table.columns.add(c.name, c.mssql, { nullable: true });
     });
 
-    // Add rows
-    rows.forEach(r => {
-      const rowValues = schema.map(col => r[col.name]);
+    rows.forEach((rawRow) => {
+      const rowValues = schema.map((c) => {
+        let v = rawRow[c.name];
+        if (v != null && c.definition.startsWith("NVARCHAR")) {
+          v = String(v);
+        }
+        return v;
+      });
       table.rows.add(...rowValues);
     });
 
-    // Bulk insert
     await pool.request().bulk(table);
 
     res.json({ message: `Inserted ${rows.length} rows into ${tableName}` });
-
   } catch (err) {
-    console.error('Upload Error:', err);
-    res.status(500).json({ error: 'Failed to process and insert data.' });
+    console.error("Upload Error:", err);
+    // Return full stack for debugging
+    res.status(500).json({ error: err.stack || err.message });
   }
 });
 
-// Start server
-const PORT = process.env.PORT || 5577;
-app.listen(PORT, () => console.log(`🚀 Server running on port ${PORT}`));
+// Serve built frontend from Express without using route patterns
+const PORT = process.env.PORT || 30443;
+const frontendRoot = path.resolve(__dirname, "..");
+app.use(express.static(path.join(frontendRoot, "dist")));
+app.use((req, res, next) => {
+  if (
+    req.method === "GET" &&
+    req.headers.accept &&
+    req.headers.accept.includes("text/html")
+  ) {
+    return res.sendFile(path.join(frontendRoot, "dist", "index.html"));
+  }
+  next();
+});
+
+app.listen(PORT, () => {
+  console.log(`🚀 Server (API + SPA) running on port ${PORT}`);
+});

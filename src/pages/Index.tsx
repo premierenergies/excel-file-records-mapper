@@ -76,8 +76,6 @@ const Index = () => {
           </p>
         </div>
 
-       
-
         {/* Upload Cards */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
           <FileUploadCard
@@ -98,7 +96,7 @@ const Index = () => {
           
           <FileUploadCard
             title="Sales Data"
-            description="Process sales transaction data with 58 required columns"
+            description={`Process sales transaction data with ${SALES_REQUIRED_COLUMNS.length} required columns`}
             requiredColumns={SALES_REQUIRED_COLUMNS}
             onProcess={handleSalesProcess}
             variant="sales"
