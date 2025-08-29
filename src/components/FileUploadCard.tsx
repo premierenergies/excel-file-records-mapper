@@ -66,7 +66,7 @@ const FileUploadCard = ({
     if (!file) return;
 
     // 1) file-extension check
-    if (!file.name.endsWith('.xlsx')) {
+    if (!file.name.toLowerCase().endsWith('.xlsx')) {
       setAlert({ type: 'error', text: `Invalid format. Please upload a ${getUploadLabel()} in .xlsx format.` });
       return;
     }

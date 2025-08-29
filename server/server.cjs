@@ -48,7 +48,7 @@ function inferSchema(rows, headers) {
     const vals = rows.map((r) => r[col]).filter((v) => v != null);
     let type;
     if (vals.length && vals.every((v) => v instanceof Date)) {
-      type = { mssql: sql.DateTime2, definition: "DATETIME2" };
+      type = { mssql: sql.Date, definition: "DATE" };
     } else if (vals.length && vals.every((v) => typeof v === "number")) {
       const hasFloat = vals.some((n) => !Number.isInteger(n));
       type = hasFloat
@@ -112,9 +112,11 @@ app.post("/upload/:report", upload.single("file"), async (req, res) => {
         if (dateCols.has(h) && typeof val === "number") {
           const dc = XLSX.SSF.parse_date_code(val);
           if (dc) {
-            val = new Date(dc.y, dc.m - 1, dc.d, dc.H, dc.M, dc.S);
+            // Anchor at 12:00 local time to avoid UTC rollback to previous day
+            val = new Date(dc.y, dc.m - 1, dc.d, 12, 0, 0);
           }
         }
+
         obj[h] = val;
       });
       return obj;

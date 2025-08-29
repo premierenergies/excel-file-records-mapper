@@ -155,7 +155,7 @@ export const SALES_REQUIRED_COLUMNS = [
   'Document Total',
   'WP',
   'Mega Watts',
-  'Price Unit',
+  'Price Unit(Price/WP)',
   'Delivery Challan Doc No',
   'Delivery Challan Doc Date',
   'Billing Doc.No',
@@ -166,7 +166,7 @@ export const SALES_REQUIRED_COLUMNS = [
   'Transporter Contact No.',
   'Sales Employee',
   'Sales Emp.Name',
-  'Segmet',
+  'Segment',
   'Product Type',
   'Company Code',
   'Billing type',
@@ -227,7 +227,10 @@ export const SALES_REQUIRED_COLUMNS = [
   'Ship to Party Postal Code',
   'Ship to Party City',
   'Unit of Measure',
-  'Cancelled billing Doc.No'
+  'Cancelled billing Doc.No',
+  'Incoterms',
+  'Terms of payment',
+  'SO Created By'
 ];
 
 export const convertToTextFile = (data: any[], filename: string) => {
